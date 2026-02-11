@@ -4,166 +4,243 @@ import random
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-import plotly.graph_objects as go
 
-# =========================
-# KONFIGURASI SISTEM
-# =========================
-TOTAL_MEJA = 60
-MHS_PER_MEJA = 3
-TOTAL_OMPRENG = TOTAL_MEJA * MHS_PER_MEJA
-TOTAL_PETUGAS = 7
+# ==========================================
+# 1. KONFIGURASI HALAMAN
+# ==========================================
+st.set_page_config(
+    page_title="Simulasi Piket IT Del", 
+    page_icon="🍱",                        
+    layout="wide"                          
+)
 
-# Custom CSS agar adaptif terhadap Dark/Light Mode
+# ==========================================
+# 2. CSS CUSTOM PREMIUM (BAHASA INDONESIA)
+# ==========================================
 st.markdown("""
     <style>
-    .stMetric {
-        background-color: rgba(128, 128, 128, 0.1);
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
     }
-    /* Memastikan gambar responsif */
-    .header-img {
-        width: 100%;
-        border-radius: 15px;
+
+    /* Animasi Gradient Bergerak untuk Header */
+    .hero-container {
+        background: linear-gradient(-45deg, #00b4db, #0083b0, #0575e6, #021b79);
+        background-size: 400% 400%;
+        animation: gradient 15s ease infinite;
+        padding: 50px 20px;
+        border-radius: 25px;
+        color: white;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    }
+
+    @keyframes gradient {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* Kartu Informasi */
+    .info-card {
+        background: rgba(128, 128, 128, 0.1);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        padding: 25px;
+        border-radius: 20px;
         margin-bottom: 20px;
-        object-fit: cover;
+    }
+
+    /* Styling Metrik agar lebih menonjol */
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 20px;
+        padding: 20px !important;
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        transition: 0.3s;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-5px);
+        border-color: #00b4db;
+    }
+
+    /* Tombol Kustom */
+    .stButton>button {
+        width: 100%;
+        border-radius: 12px;
+        background: linear-gradient(90deg, #00b4db 0%, #0083b0 100%);
+        color: white;
+        font-weight: 700;
+        border: none;
+        padding: 12px;
+        transition: 0.3s;
+    }
+    .stButton>button:hover {
+        box-shadow: 0 8px 20px rgba(0, 180, 219, 0.4);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# =========================
-# ENGINE SIMULASI
-# =========================
-class SistemPiketDES:
+# ==========================================
+# 3. ENGINE SIMULASI (DES)
+# ==========================================
+class SimulasiPiket:
     def __init__(self, env, p_lauk, p_angkat, p_nasi):
         self.env = env
         self.lauk = simpy.Resource(env, capacity=p_lauk)
         self.angkat = simpy.Resource(env, capacity=p_angkat)
         self.nasi = simpy.Resource(env, capacity=p_nasi)
         self.data = []
-        self.start_time = datetime.now().replace(hour=7, minute=0, second=0)
+        self.waktu_mulai = datetime.now().replace(hour=12, minute=0, second=0)
 
-    def proses_ompreng(self, oid):
-        t_datang = self.env.now
+    def alur_makan(self, id_ompreng):
+        datang = self.env.now
         
-        # Logika antrean untuk setiap tahap
-        # 1. Tahap Lauk
+        # 1. Antre Lauk
         with self.lauk.request() as req:
             yield req
-            t_mulai_lauk = self.env.now
-            yield self.env.timeout(random.uniform(30, 60))
+            mulai_lauk = self.env.now
+            yield self.env.timeout(random.uniform(25, 55))
         
-        # 2. Tahap Angkat
+        # 2. Antre Angkat
         with self.angkat.request() as req:
             yield req
-            t_mulai_angkat = self.env.now
-            yield self.env.timeout(random.uniform(20, 60))
+            mulai_angkat = self.env.now
+            yield self.env.timeout(random.uniform(15, 45))
             
-        # 3. Tahap Nasi
+        # 3. Antre Nasi
         with self.nasi.request() as req:
             yield req
-            t_mulai_nasi = self.env.now
+            mulai_nasi = self.env.now
             yield self.env.timeout(random.uniform(30, 60))
 
-        t_selesai = self.env.now
-        
+        selesai = self.env.now
+        durasi_total = selesai - datang
+        waktu_murni = (selesai - mulai_nasi) + (mulai_nasi - mulai_angkat) + (mulai_angkat - mulai_lauk)
+        tunggu = max(0, durasi_total - waktu_murni)
+
         self.data.append({
-            "Ompreng ID": oid + 1,
-            "Total Durasi": round(t_selesai - t_datang, 2),
-            "Waktu Antre": round((t_selesai - t_datang) - ((t_selesai - t_mulai_nasi) + (t_mulai_nasi - t_mulai_angkat) + (t_mulai_angkat - t_mulai_lauk)), 2),
-            "Selesai": self.start_time + timedelta(seconds=t_selesai)
+            "Ompreng": f"Unit-{id_ompreng+1:03d}",
+            "Waktu Pelayanan (s)": round(durasi_total, 1),
+            "Waktu Antre (s)": round(tunggu, 1),
+            "Jam Selesai": (self.waktu_mulai + timedelta(seconds=selesai)).strftime("%H:%M:%S")
         })
 
-    def run(self):
-        for i in range(TOTAL_OMPRENG):
-            self.env.process(self.proses_ompreng(i))
-            yield self.env.timeout(1.5) # Interval pengumpulan ompreng dari meja
+    def jalankan(self, jumlah_ompreng):
+        for i in range(jumlah_ompreng):
+            self.env.process(self.alur_makan(i))
+            yield self.env.timeout(1.5)
 
-# =========================
-# UI STREAMLIT
-# =========================
+# ==========================================
+# 4. ANTARMUKA PENGGUNA (UI)
+# ==========================================
 def main():
-    # Render gambar header menggunakan Unsplash (Adaptive & High Quality)
-    st.image("https://images.unsplash.com/photo-1547573854-74d2a71d0826?q=80&w=1200", use_container_width=True)
-    
-    st.title("🍱 Smart Simulation: IT Del")
-    st.subheader("Optimasi Sistem Antrean Piket Makan")
-    
-    # --- SIDEBAR ---
-    st.sidebar.header("⚙️ Konfigurasi Petugas")
-    st.sidebar.info(f"Total SDM Tersedia: **{TOTAL_PETUGAS} Orang**")
-    
-    p_lauk = st.sidebar.slider("Petugas Lauk", 1, 5, 2)
-    p_angkat = st.sidebar.slider("Petugas Angkat", 1, 5, 2)
-    
-    sisa = TOTAL_PETUGAS - p_lauk - p_angkat
-    
-    if sisa < 1:
-        st.sidebar.error("⚠️ Alokasi melebihi batas 7 petugas! Kurangi porsi pos lain.")
-        p_nasi = 0
-        ready = False
-    else:
-        p_nasi = sisa
-        st.sidebar.success(f"✅ Petugas Nasi otomatis: **{p_nasi}**")
-        ready = True
+    # --- HEADER ---
+    st.markdown("""
+        <div class="hero-container">
+            <h1 style="font-size: 3.5rem; margin-bottom: 5px;">🍱 Analisis Piket IT Del</h1>
+            <p style="font-size: 1.3rem; opacity: 0.9; font-weight: 400;">
+                Optimasi Sistem Antrean Makan Siang Mahasiswa secara Cerdas
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    btn_run = st.sidebar.button("🚀 Jalankan Simulasi", use_container_width=True)
-
-    # --- MAIN UI ---
-    if btn_run and ready:
-        env = simpy.Environment()
-        model = SistemPiketDES(env, p_lauk, p_angkat, p_nasi)
-        env.process(model.run())
+    # --- SIDEBAR KONFIGURASI ---
+    with st.sidebar:
+        st.markdown("### 🛠️ Pengaturan Staf")
+        st.caption("Total staf tersedia: 7 orang")
         
-        with st.status("Mensimulasikan antrean...", expanded=True) as status:
-            env.run()
-            status.update(label="Simulasi Selesai!", state="complete", expanded=False)
+        with st.container(border=True):
+            st.markdown("**Alokasi Pos:**")
+            st_lauk = st.slider("🍗 Petugas Lauk", 1, 5, 2)
+            st_angkat = st.slider("🧺 Petugas Angkat", 1, 5, 2)
             
-        df = pd.DataFrame(model.data)
+            sisa = 7 - st_lauk - st_angkat
+            st_nasi = max(1, sisa)
+            
+            if sisa < 1:
+                st.error("Kapasitas Penuh! (Maks 7)")
+                siap = False
+            else:
+                st.success(f"🍚 Petugas Nasi: {st_nasi}")
+                siap = True
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_simulasi = st.button("🚀 Jalankan Simulasi")
+        st.divider()
+        st.markdown("🔍 *Sistem ini memprediksi titik kemacetan (bottleneck) secara real-time.*")
 
-        # Dashboard Metrik
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Rata-rata Waktu", f"{df['Total Durasi'].mean():.1f}s")
-        m2.metric("Waktu Selesai", df["Selesai"].max().strftime("%H:%M:%S"))
-        m3.metric("Bottleneck Index", f"{df['Waktu Antre'].mean():.1f}s")
+    # --- KONTEN UTAMA ---
+    if btn_simulasi and siap:
+        env = simpy.Environment()
+        sim = SimulasiPiket(env, st_lauk, st_angkat, st_nasi)
+        env.process(sim.jalankan(180)) # Total 180 mahasiswa (60 meja x 3)
+        
+        with st.status("🔮 Menghitung probabilitas antrean...", expanded=False) as status:
+            env.run()
+            status.update(label="Analisis Selesai!", state="complete")
+            
+        df = pd.DataFrame(sim.data)
 
-        # Tabs untuk visualisasi
-        tab_dist, tab_trend, tab_data = st.tabs(["📊 Distribusi", "📈 Tren Waktu", "📋 Data Lengkap"])
+        # --- PANEL METRIK ---
+        st.markdown("### 📊 Statistik Performa")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
+        avg_wait = df['Waktu Antre (s)'].mean()
+        kpi1.metric("Rerata Layanan", f"{df['Waktu Pelayanan (s)'].mean():.1f}s")
+        kpi2.metric("Waktu Tunggu", f"{avg_wait:.1f}s", delta=f"{avg_wait-20:.1f}s", delta_color="inverse")
+        kpi3.metric("Selesai Pukul", df["Jam Selesai"].iloc[-1])
+        kpi4.metric("Efisiensi Pos", f"{max(0, 100-(avg_wait/2)):.0f}%")
 
-        with tab_dist:
-            # Histogram dengan warna tema yang adaptif
-            fig1 = px.histogram(
-                df, x="Total Durasi", 
-                title="Penyebaran Durasi Penyelesaian",
-                color_discrete_sequence=['#00CC96'],
-                template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
-            )
-            st.plotly_chart(fig1, use_container_width=True)
+        st.divider()
 
-        with tab_trend:
-            # Scatter plot untuk melihat lonjakan antrean
-            fig2 = px.area(
-                df, x="Ompreng ID", y="Waktu Antre",
-                title="Analisis Penumpukan Antrean (Waktu Tunggu)",
-                template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+        # --- VISUALISASI ---
+        tab_grafik, tab_data = st.tabs(["🎯 Visualisasi Tren", "📋 Tabel Detail"])
+        
+        with tab_grafik:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### ⏳ Grafik Penumpukan Antrean")
+                fig_area = px.area(df, x="Ompreng", y="Waktu Antre (s)", 
+                                   color_discrete_sequence=['#00b4db'])
+                fig_area.update_layout(template="none", hovermode="x unified")
+                st.plotly_chart(fig_area, use_container_width=True)
+                
+            with c2:
+                st.markdown("#### 📉 Distribusi Kecepatan")
+                fig_hist = px.histogram(df, x="Waktu Pelayanan (s)", 
+                                        color_discrete_sequence=['#0575e6'], nbins=20)
+                fig_hist.update_layout(template="none")
+                st.plotly_chart(fig_hist, use_container_width=True)
 
         with tab_data:
-            st.dataframe(df, use_container_width=True)
+            st.markdown("#### Log Aktivitas Simulasi")
+            st.dataframe(df.style.background_gradient(subset=['Waktu Antre (s)'], cmap='OrRd'), use_container_width=True)
             
+            # Tombol Unduh
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Unduh Laporan (CSV)", data=csv, file_name="laporan_piket_del.csv", mime="text/csv")
+
     else:
-        # Tampilan Awal (Welcome Screen)
-        st.info("Atur pembagian tugas pada sidebar di sebelah kiri, lalu tekan tombol **Jalankan Simulasi**.")
-        
-        with st.expander("📌 Informasi Parameter"):
-            st.write(f"""
-            - **Total Ompreng:** {TOTAL_OMPRENG} buah (60 meja × 3 mhs)
-            - **Target SDM:** 7 Petugas
-            - **Variabel Waktu:** Random Uniform (Sesuai standar operasional pelayanan makanan)
-            """)
+        # --- TAMPILAN AWAL ---
+        col_text, col_img = st.columns([1, 1])
+        with col_text:
+            st.markdown("""
+            <div class="info-card">
+                <h3>Selamat Datang! 👋</h3>
+                <p>Dashboard ini membantu regu piket IT Del untuk menentukan jumlah staf terbaik di setiap pos pelayanan makanan.</p>
+                <ul>
+                    <li><b>Pos Lauk:</b> Mengambil porsi lauk utama.</li>
+                    <li><b>Pos Angkat:</b> Mengambil piring/ompreng.</li>
+                    <li><b>Pos Nasi:</b> Pengisian nasi hangat.</li>
+                </ul>
+                <p><i>Coba pindahkan satu petugas dari Lauk ke Nasi dan lihat perbedaannya pada waktu tunggu!</i></p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_img:
+            st.image("https://images.unsplash.com/photo-1547573854-74d2a71d0826?q=80&w=1200", use_container_width=True)
 
 if __name__ == "__main__":
     main()
