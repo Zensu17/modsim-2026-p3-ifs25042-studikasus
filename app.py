@@ -61,7 +61,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. ENGINE SIMULASI (DES) - PERBAIKAN LOGIKA
+# 3. ENGINE SIMULASI (DES)
 # ==========================================
 class SimulasiPiket:
     def __init__(self, env, p_lauk, p_angkat, p_nasi):
@@ -70,7 +70,8 @@ class SimulasiPiket:
         self.angkat = simpy.Resource(env, capacity=p_angkat)
         self.nasi = simpy.Resource(env, capacity=p_nasi)
         self.data = []
-        self.waktu_mulai = datetime.now().replace(hour=12, minute=0, second=0)
+        # PERBAIKAN: Set waktu mulai ke pukul 07:00:00
+        self.waktu_mulai = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
 
     def alur_makan(self, id_ompreng):
         datang = self.env.now
@@ -95,7 +96,8 @@ class SimulasiPiket:
 
         selesai = self.env.now
         durasi_total = selesai - datang
-        # Waktu murni adalah total waktu saat diproses di depan petugas (bukan saat antre)
+        
+        # Logika perhitungan waktu antre (Total waktu dikurangi waktu pengerjaan murni)
         waktu_proses_murni = (selesai - mulai_layanan_nasi) + \
                              (mulai_layanan_nasi - mulai_layanan_angkat) + \
                              (mulai_layanan_angkat - mulai_layanan_lauk)
@@ -112,8 +114,8 @@ class SimulasiPiket:
     def jalankan(self, jumlah_ompreng):
         for i in range(jumlah_ompreng):
             self.env.process(self.alur_makan(i))
-            # Interval antar mahasiswa datang ke barisan (misal tiap 2 detik ada yang datang)
-            yield self.env.timeout(2)
+            # Interval antar unit/mahasiswa datang ke barisan (misal tiap 3 detik)
+            yield self.env.timeout(3)
 
 # ==========================================
 # 4. ANTARMUKA PENGGUNA (UI)
@@ -122,13 +124,13 @@ def main():
     st.markdown("""
         <div class="hero-container">
             <h1 style="font-size: 3rem; margin-bottom: 5px;">🍱 Analisis Piket IT Del</h1>
-            <p style="font-size: 1.2rem; opacity: 0.9;">Optimasi Sistem Antrean Makan Siang Mahasiswa</p>
+            <p style="font-size: 1.2rem; opacity: 0.9;">Optimasi Sistem Antrean Makan Mahasiswa (Mulai 07:00 WIB)</p>
         </div>
     """, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header("🛠️ Konfigurasi Staf")
-        st.info("Total staf: 7 orang")
+        st.info("Total staf tersedia: 7 orang")
         
         st_lauk = st.slider("🍗 Petugas Lauk", 1, 5, 2)
         st_angkat = st.slider("🧺 Petugas Angkat", 1, 5, 2)
@@ -137,7 +139,7 @@ def main():
         sisa = 7 - st_lauk - st_angkat
         
         if sisa < 1:
-            st.error("⚠️ Alokasi melebihi 7 staf!")
+            st.error("⚠️ Alokasi melebihi 7 staf! Kurangi petugas lain.")
             siap = False
             st_nasi = 0
         else:
@@ -146,14 +148,16 @@ def main():
             siap = True
         
         st.divider()
-        btn_simulasi = st.button("🚀 Jalankan Simulasi", disabled=not siap)
+        st.write("**Parameter Simulasi:**")
+        jumlah_mhs = st.number_input("Jumlah Ompreng", min_value=10, max_value=500, value=180)
+        btn_simulasi = st.button("🚀 Jalankan Simulasi", disabled=not siap, use_container_width=True)
 
     if btn_simulasi:
         env = simpy.Environment()
         sim = SimulasiPiket(env, st_lauk, st_angkat, st_nasi)
-        env.process(sim.jalankan(180)) 
+        env.process(sim.jalankan(jumlah_mhs)) 
         
-        with st.spinner("Menganalisis pergerakan antrean..."):
+        with st.spinner("Mengkalkulasi dinamika antrean..."):
             env.run()
             
         df = pd.DataFrame(sim.data)
@@ -163,46 +167,47 @@ def main():
         m1, m2, m3, m4 = st.columns(4)
         
         avg_wait = df['Waktu Antre (s)'].mean()
-        m1.metric("Rerata Layanan", f"{df['Waktu Pelayanan (s)'].mean():.1f}s")
-        m2.metric("Rerata Antre", f"{avg_wait:.1f}s")
-        m3.metric("Waktu Selesai", df["Jam Selesai"].iloc[-1])
-        m4.metric("Total Unit", len(df))
+        m1.metric("Rerata Total Layanan", f"{df['Waktu Pelayanan (s)'].mean():.1f}s")
+        m2.metric("Rerata Waktu Tunggu", f"{avg_wait:.1f}s", delta=f"{avg_wait/60:.1f} m", delta_color="inverse")
+        m3.metric("Piket Selesai Pukul", df["Jam Selesai"].iloc[-1])
+        m4.metric("Total Unit Dilayani", len(df))
 
         # --- VISUALISASI ---
-        t1, t2 = st.tabs(["🎯 Tren Antrean", "📋 Data Mentah"])
+        t1, t2 = st.tabs(["🎯 Visualisasi Tren", "📋 Detail Data"])
         
         with t1:
             c1, c2 = st.columns(2)
             with c1:
                 fig_line = px.line(df, x="Ompreng", y="Waktu Antre (s)", 
-                                 title="Penumpukan Antrean Seiring Waktu",
+                                 title="Akumulasi Waktu Antre per Unit",
                                  color_discrete_sequence=['#ff4b4b'])
                 st.plotly_chart(fig_line, use_container_width=True)
             with c2:
                 fig_hist = px.histogram(df, x="Waktu Pelayanan (s)", 
-                                      title="Distribusi Waktu Total",
-                                      color_discrete_sequence=['#00b4db'])
+                                      title="Distribusi Kecepatan Layanan",
+                                      color_discrete_sequence=['#00b4db'],
+                                      nbins=20)
                 st.plotly_chart(fig_hist, use_container_width=True)
 
         with t2:
             st.dataframe(df, use_container_width=True)
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Unduh CSV", csv, "laporan_simulasi.csv", "text/csv")
+            st.download_button("📥 Unduh Laporan (CSV)", csv, "laporan_simulasi_piket.csv", "text/csv")
     else:
         # Tampilan Landing
         col1, col2 = st.columns([1, 1])
         with col1:
             st.markdown("""
             <div class="info-card">
-                <h3>Cara Menggunakan:</h3>
-                1. Tentukan jumlah petugas di sisi kiri.<br>
-                2. Pastikan total petugas adalah 7 orang.<br>
-                3. Klik <b>Jalankan Simulasi</b>.<br><br>
-                <i>Sistem akan mensimulasikan 180 mahasiswa yang mengantre secara berurutan.</i>
+                <h3>Panduan Simulasi:</h3>
+                1. Atur komposisi petugas di sidebar (Total harus 7).<br>
+                2. Tentukan berapa banyak unit (ompreng) yang akan diproses.<br>
+                3. Klik <b>Jalankan Simulasi</b> untuk melihat visualisasi.<br><br>
+                <b>Logika Waktu:</b> Simulasi dimulai pukul <b>07:00</b> untuk memantau durasi piket pagi.
             </div>
             """, unsafe_allow_html=True)
         with col2:
-            st.image("https://images.unsplash.com/photo-1547573854-74d2a71d0826?q=80&w=1200")
+            st.image("https://images.unsplash.com/photo-1547573854-74d2a71d0826?q=80&w=1200", caption="Optimasi Kantin IT Del")
 
 if __name__ == "__main__":
     main()
